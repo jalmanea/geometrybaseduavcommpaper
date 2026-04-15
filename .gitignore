@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data (download from DOI: 10.7910/DVN/QLCABU)
+dataverse_files/
+dataverse_files.zip
+
+# Results (reproducible from scripts)
+results/
+
+# Misc
+logs/
+notes/
+

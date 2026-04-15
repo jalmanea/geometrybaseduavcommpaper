@@ -1,0 +1,35 @@
+antenna:
+  dl_g_max_dbi: 18.0
+  dl_beamwidth_deg: 60.0
+  dl_sla_db: 20.0
+  bh_g_max_dbi: 12.0
+  bh_beamwidth_deg: 30.0
+  bh_sla_db: 25.0
+
+channel:
+  environment: urban
+  carrier_freq_hz: 2.0e+9
+
+network:
+  n_drones: 15
+  altitude_m: 150.0
+  p_tx_dl_dbm: 30.0
+  p_tx_bh_dbm: 27.0
+  bandwidth_hz: 10.0e+6
+  noise_psd_dbm_hz: -174.0
+  sinr_threshold_db: 3.0
+  min_separation_m: 100.0
+  dl_tilt_deg: 0.0
+  bh_tilt_deg: 90.0
+
+scenario:
+  area_size_m: 2000.0
+  n_clusters: 5
+  users_per_cluster_mean: 40
+  users_per_cluster_std: 10
+  cluster_spread_m: 100.0
+
+simulation:
+  n_trials: 100
+  seed: 42
+  placement_strategy: kmeans

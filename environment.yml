@@ -1,0 +1,22 @@
+name: dronecomm
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Core Python
+  - python>=3.11
+
+  # Required dependencies
+  - numpy>=1.24
+  - scipy>=1.10
+  - matplotlib>=3.7
+  - pyyaml>=6.0
+
+  # Development/testing (optional but recommended)
+  - pytest>=7.0
+  - pytest-cov
+
+  # Install the local package in editable mode
+  - pip
+  - pip:
+    - -e .
