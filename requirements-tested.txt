@@ -1,0 +1,10 @@
+# Versions the committed results and figures were produced with (Python 3.13.5).
+# pip install -r requirements-tested.txt && pip install -e ".[dev]"
+# Note: byte-identical Figs. 2-4 additionally need the conda build of
+# matplotlib (see README); the pip wheel bundles an older FreeType.
+numpy==2.3.1
+scipy==1.16.1
+pandas==2.3.2
+matplotlib==3.10.5
+pyyaml==6.0.3
+cma==4.4.4

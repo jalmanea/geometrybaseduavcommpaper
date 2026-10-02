@@ -53,12 +53,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dronecomm.config import Config
 from dronecomm.heuristic import (
+    deploy_kmeans_baseline,
+    deploy_kmeans_global_altitude_sweep,
     deploy_analytic_heuristic,
     deploy_analytic_pca_heuristic,
     deploy_repulsive_lloyd_heuristic,
     deploy_altitude_staggered_heuristic,
-    mst_backhaul_orientations,
-    _gateway_idx,
 )
 from dronecomm.optimize import _build_models, _evaluate_single
 from dronecomm.scenario import (
@@ -86,12 +86,13 @@ INTERF_BEST_DBM = -70.0
 INTERF_WORST_DBM = -30.0
 
 DEFAULT_METHODS = [
-    "kmeans", "analytic", "analytic_pca",
+    "kmeans", "kmeans_altitude_sweep", "analytic", "analytic_pca",
     "repulsive_lloyd", "altitude_stagger",
 ]
 
 METHOD_LABELS = {
     "kmeans": "K-means",
+    "kmeans_altitude_sweep": "K-means+Alt Sweep",
     "analytic": "Analytic",
     "analytic_pca": "Analytic+PCA",
     "repulsive_lloyd": "Repulsive Lloyd",
@@ -177,35 +178,14 @@ def average_metric_dicts(dicts: list[dict]) -> dict:
     return avg
 
 
-# ── Deployment wrapper ───────────────────────────────────────────────
-
-
-def deploy_kmeans_baseline(config: Config, user_positions: np.ndarray, seed: int = 42) -> Scenario:
-    from scipy.cluster.vq import kmeans2
-    n = config.network.n_drones
-    centroids, _ = kmeans2(user_positions[:, :2], n, minit="points", seed=seed)
-    drone_pos = np.zeros((n, 3))
-    drone_pos[:, :2] = centroids
-    drone_pos[:, 2] = config.network.altitude_m
-    gw_idx = _gateway_idx(drone_pos)
-    bh_tilt, bh_azimuth = mst_backhaul_orientations(drone_pos, gateway_idx=gw_idx)
-    return Scenario(
-        user_positions=user_positions,
-        drone_positions=drone_pos,
-        dl_tilt_rad=np.zeros(n),
-        dl_azimuth_rad=np.zeros(n),
-        bh_tilt_rad=bh_tilt,
-        bh_azimuth_rad=bh_azimuth,
-        area_size_m=config.scenario.area_size_m,
-    )
-
-
 def deploy_method(
     method: str, config: Config, user_pos: np.ndarray, seed: int,
     repulsive_beta: float = 0.15, n_altitude_tiers: int = 3,
 ) -> Scenario:
     if method == "kmeans":
         return deploy_kmeans_baseline(config, user_pos, seed)
+    elif method == "kmeans_altitude_sweep":
+        return deploy_kmeans_global_altitude_sweep(config, user_pos, seed)
     elif method == "analytic":
         return deploy_analytic_heuristic(config, user_pos, seed)
     elif method == "analytic_pca":

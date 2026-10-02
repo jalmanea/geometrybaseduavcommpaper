@@ -2,6 +2,13 @@ name: dronecomm
 channels:
   - conda-forge
   - defaults
+# Tested with Python 3.13.5, numpy 2.3.1, scipy 1.16.1, pandas 2.3.2,
+# matplotlib 3.10.5 (macOS arm64, conda "defaults" channel). To recreate that
+# environment exactly, which also gives byte-identical figure PNGs:
+#   conda create -n dronecomm -c defaults --override-channels python=3.13.5 \
+#       numpy=2.3.1 scipy=1.16.1 pandas=2.3.2 matplotlib-base=3.10.5 \
+#       freetype=2.13.3 pillow=11.3.0 pyyaml pytest pip
+#   conda activate dronecomm && pip install -e ".[dev]"
 dependencies:
   # Core Python
   - python>=3.11
@@ -11,6 +18,8 @@ dependencies:
   - scipy>=1.10
   - matplotlib>=3.7
   - pyyaml>=6.0
+  - pandas>=2.0
+  - cma>=3.3
 
   # Development/testing (optional but recommended)
   - pytest>=7.0

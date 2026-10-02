@@ -6,9 +6,10 @@ it is evaluated on.
 
 Methods compared
 ----------------
-kmeans          : k-means (x,y) + fixed altitude + nadir DL + MST BH
-analytic        : k-means (x,y) + cluster-spread altitude + centroid DL + MST BH
-analytic_pca    : k-means (x,y) + cluster-spread altitude + PCA DL + MST BH
+ kmeans               : k-means (x,y) + fixed altitude + nadir DL + MST BH
+ kmeans_altitude_sweep: k-means (x,y) + per-seed tuned global altitude + nadir DL + MST BH
+ analytic             : k-means (x,y) + cluster-spread altitude + centroid DL + MST BH
+ analytic_pca         : k-means (x,y) + cluster-spread altitude + PCA DL + MST BH
 repulsive_lloyd : Lloyd's iteration with repulsive forces + analytic orientations
 altitude_stagger: analytic placement + graph-coloured altitude tiers
 greedy_fine     : greedy 40x40 grid (1600 candidates) + analytic orientations
@@ -51,6 +52,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dronecomm.config import Config, NetworkConfig, ScenarioConfig
 from dronecomm.heuristic import (
+    deploy_kmeans_baseline,
+    deploy_kmeans_global_altitude_sweep,
     deploy_analytic_heuristic,
     deploy_analytic_pca_heuristic,
     deploy_repulsive_lloyd_heuristic,
@@ -59,12 +62,9 @@ from dronecomm.heuristic import (
     generate_grid_candidates,
     greedy_discrete_placement,
     exhaustive_discrete_placement,
-    mst_backhaul_orientations,
-    _gateway_idx,
 )
 from dronecomm.optimize import _build_models, _evaluate_single
 from dronecomm.scenario import (
-    Scenario,
     generate_users,
     generate_users_uniform,
     generate_users_hotspot,
@@ -213,39 +213,6 @@ def average_metric_dicts(dicts: list[dict]) -> dict:
     return avg
 
 
-# ── Deploy k-means baseline (user-aware) ──────────────────────────────
-
-
-def deploy_kmeans_baseline(
-    config: Config,
-    user_positions: np.ndarray,
-    seed: int = 42,
-) -> Scenario:
-    """K-means placement with fixed altitude, nadir DL, MST BH."""
-    from scipy.cluster.vq import kmeans2
-
-    n = config.network.n_drones
-    xy = user_positions[:, :2]
-    centroids, _ = kmeans2(xy, n, minit="points", seed=seed)
-
-    drone_pos = np.zeros((n, 3))
-    drone_pos[:, :2] = centroids
-    drone_pos[:, 2] = config.network.altitude_m
-
-    gw_idx = _gateway_idx(drone_pos)
-    bh_tilt, bh_azimuth = mst_backhaul_orientations(drone_pos, gateway_idx=gw_idx)
-
-    return Scenario(
-        user_positions=user_positions,
-        drone_positions=drone_pos,
-        dl_tilt_rad=np.zeros(n),              # nadir
-        dl_azimuth_rad=np.zeros(n),
-        bh_tilt_rad=bh_tilt,
-        bh_azimuth_rad=bh_azimuth,
-        area_size_m=config.scenario.area_size_m,
-    )
-
-
 # ── Core experiment runner ─────────────────────────────────────────────
 
 
@@ -277,7 +244,7 @@ def run_experiment(
     dl_antenna, bh_antenna, channel = _build_models(config)
 
     method_names = [
-        "kmeans", "analytic", "analytic_pca",
+        "kmeans", "kmeans_altitude_sweep", "analytic", "analytic_pca",
         "repulsive_lloyd", "altitude_stagger",
     ]
     if run_greedy:
@@ -309,6 +276,8 @@ def run_experiment(
 
             if method == "kmeans":
                 sc = deploy_kmeans_baseline(config, user_pos, seed=seed)
+            elif method == "kmeans_altitude_sweep":
+                sc = deploy_kmeans_global_altitude_sweep(config, user_pos, seed=seed)
             elif method == "analytic":
                 sc = deploy_analytic_heuristic(config, user_pos, seed=seed)
             elif method == "analytic_pca":

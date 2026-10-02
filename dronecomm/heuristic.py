@@ -13,7 +13,8 @@ Zero hyperparameters; zero orientation evaluations for the pure analytic heurist
 from __future__ import annotations
 
 import itertools
-from typing import NamedTuple
+from dataclasses import dataclass
+from typing import NamedTuple, Sequence
 
 import numpy as np
 from scipy.cluster.vq import kmeans2
@@ -26,6 +27,7 @@ from .optimize import (
     _evaluate_single,
     evaluate_scenario,
 )
+from .metrics import SimulationMetrics
 from .scenario import Scenario, generate_users
 
 
@@ -235,6 +237,146 @@ def compute_cluster_stats(
 
 
 # ── Full analytic deployment ──────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class KMeansAltitudeSweepEntry:
+    """One candidate in the global-altitude sweep baseline."""
+
+    altitude_m: float
+    metrics: SimulationMetrics
+
+
+def _kmeans_centroids(
+    user_positions: np.ndarray,
+    n_drones: int,
+    seed: int,
+) -> np.ndarray:
+    """Return K-means centroids for the current user realization."""
+    centroids, _ = kmeans2(user_positions[:, :2], n_drones, minit="points", seed=seed)
+    return centroids
+
+
+def _build_kmeans_fixed_altitude_scenario(
+    config: Config,
+    user_positions: np.ndarray,
+    centroids_xy: np.ndarray,
+    altitude_m: float,
+) -> Scenario:
+    """Build the fixed-altitude K-means baseline scenario."""
+    n = centroids_xy.shape[0]
+    drone_pos = np.zeros((n, 3))
+    drone_pos[:, :2] = centroids_xy
+    drone_pos[:, 2] = altitude_m
+
+    gw_idx = _gateway_idx(drone_pos)
+    bh_tilt, bh_azimuth = mst_backhaul_orientations(drone_pos, gateway_idx=gw_idx)
+
+    return Scenario(
+        user_positions=user_positions,
+        drone_positions=drone_pos,
+        dl_tilt_rad=np.zeros(n),
+        dl_azimuth_rad=np.zeros(n),
+        bh_tilt_rad=bh_tilt,
+        bh_azimuth_rad=bh_azimuth,
+        area_size_m=config.scenario.area_size_m,
+    )
+
+
+def deploy_kmeans_baseline(
+    config: Config,
+    user_positions: np.ndarray,
+    seed: int = 42,
+    altitude_m: float | None = None,
+) -> Scenario:
+    """K-means placement with fixed common altitude, nadir DL, and MST BH."""
+    if altitude_m is None:
+        altitude_m = config.network.altitude_m
+    centroids = _kmeans_centroids(user_positions, config.network.n_drones, seed)
+    return _build_kmeans_fixed_altitude_scenario(
+        config,
+        user_positions,
+        centroids,
+        float(altitude_m),
+    )
+
+
+def _kmeans_altitude_sweep_sort_key(
+    entry: KMeansAltitudeSweepEntry,
+) -> tuple[float, ...]:
+    """Lexicographic score for choosing the best sweep altitude."""
+    return (
+        entry.metrics.coverage_fraction,
+        entry.metrics.sinr_5th_percentile_db,
+        -entry.metrics.total_inter_drone_interference_dbm,
+        -entry.altitude_m,
+    )
+
+
+def sweep_kmeans_global_altitude(
+    config: Config,
+    user_positions: np.ndarray,
+    seed: int = 42,
+    altitudes_m: Sequence[float] | None = None,
+) -> tuple[Scenario, list[KMeansAltitudeSweepEntry]]:
+    """Tune one common altitude for all K-means drones on a fixed user layout.
+
+    The sweep is per-seed tuned: K-means centroids are computed once for the
+    current user realization, then a shared altitude is swept over a candidate
+    grid and the best altitude is selected by coverage.
+    """
+    if altitudes_m is None:
+        altitude_grid = np.arange(50.0, 301.0, 10.0)
+    else:
+        altitude_grid = np.asarray(list(altitudes_m), dtype=float)
+    if altitude_grid.ndim != 1 or altitude_grid.size == 0:
+        raise ValueError("altitudes_m must contain at least one altitude")
+    if not np.all(np.isfinite(altitude_grid)):
+        raise ValueError("altitudes_m must be finite")
+
+    centroids = _kmeans_centroids(user_positions, config.network.n_drones, seed)
+    dl_antenna, bh_antenna, channel = _build_models(config)
+
+    best_scenario = None
+    best_entry = None
+    entries: list[KMeansAltitudeSweepEntry] = []
+
+    for altitude_m in altitude_grid:
+        scenario = _build_kmeans_fixed_altitude_scenario(
+            config,
+            user_positions,
+            centroids,
+            float(altitude_m),
+        )
+        metrics = _evaluate_single(scenario, config, dl_antenna, bh_antenna, channel)
+        entry = KMeansAltitudeSweepEntry(float(altitude_m), metrics)
+        entries.append(entry)
+
+        if best_entry is None or _kmeans_altitude_sweep_sort_key(
+            entry
+        ) > _kmeans_altitude_sweep_sort_key(best_entry):
+            best_entry = entry
+            best_scenario = scenario
+
+    if best_scenario is None:
+        raise RuntimeError("Altitude sweep produced no scenario")
+    return best_scenario, entries
+
+
+def deploy_kmeans_global_altitude_sweep(
+    config: Config,
+    user_positions: np.ndarray,
+    seed: int = 42,
+    altitudes_m: Sequence[float] | None = None,
+) -> Scenario:
+    """Per-seed tuned K-means baseline with one global altitude for all drones."""
+    scenario, _ = sweep_kmeans_global_altitude(
+        config,
+        user_positions,
+        seed=seed,
+        altitudes_m=altitudes_m,
+    )
+    return scenario
 
 
 def _gateway_idx(drone_positions: np.ndarray) -> int:

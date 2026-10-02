@@ -17,12 +17,21 @@ venv/
 # Jupyter
 .ipynb_checkpoints/
 
-# Data (download from DOI: 10.7910/DVN/QLCABU)
+# Raw Telecom Italia data: not redistributable, download it yourself (see README)
 dataverse_files/
+dataverse_files_milan/
 dataverse_files.zip
 
-# Results (reproducible from scripts)
+# Results are not tracked: regenerate them with the scripts (see README)
 results/
+
+# LaTeX build products
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.pdf
 
 # Misc
 logs/

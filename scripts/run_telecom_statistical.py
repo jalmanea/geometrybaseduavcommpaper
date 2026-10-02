@@ -1,32 +1,37 @@
 """Statistically rigorous telecom heuristic experiment.
 
-Evaluates 6 deployment methods on 24 real-world Telecom Italia snapshots
-with proper replication for paired non-parametric statistical tests.
+Evaluates deployment methods on 24 real-world Telecom Italia snapshots
+(central Milan) with replication for paired statistical tests.
 
-Experimental design
--------------------
-- 48 snapshots (6 weeks x weekday/weekend x 4 hours: 08, 12, 16, 20 UTC)
-- 3 user densities (200, 400, 800) — subsampled from 800-user pool
+Paper run (results/telecom_milan, Sec. IV-D and Fig. 4)
+-------------------------------------------------------
+- 24 snapshots (4 weeks x weekday/weekend x 3 hours: 10, 15, 20 UTC)
 - 26 drone counts (5, 6, 7, ..., 30)
-- 30 seeds per condition — each seed draws a fresh user subsample AND
-  k-means initialisation, so all methods (including greedy) see the
-  same users within a seed but different users across seeds
-- 6 methods: kmeans, analytic, analytic_pca, repulsive_lloyd,
-  altitude_stagger, greedy
+- 8 user densities (100, 200, ..., 800), subsampled from the 800-user pool
+- 20 seeds per condition: each seed draws a fresh user subsample AND
+  k-means initialisation, so all methods see the same users within a seed
+  but different users across seeds
+- 3 methods: kmeans, analytic, kmeans_altitude_sweep
+- 24 x 26 x 8 = 4,992 tasks, 60 rows each:
 
-Statistical analysis plan
--------------------------
-1. Friedman test (non-parametric repeated-measures) per (n_drones, n_users)
-2. Post-hoc Wilcoxon signed-rank with Holm-Bonferroni correction
-3. Cliff's delta effect sizes for each method pair
-4. Bootstrap 95% CIs on mean differences
+    python scripts/run_telecom_statistical.py --phase main --task-id $i \
+        --snapshot-dir results/telecom_milan/snapshots \
+        --drone-counts $(seq 5 30) --user-counts $(seq 100 100 800) \
+        --n-seeds 20 --no-greedy \
+        --methods kmeans analytic kmeans_altitude_sweep \
+        --output-dir results/telecom_milan
+
+The built-in defaults (M in {200, 400, 800}, 30 seeds, six methods plus
+greedy) belong to an earlier design and are NOT the paper run; pass the
+flags above.
 
 Phases
 ------
-main         : Full factorial method comparison (3744 SLURM tasks:
-               48 snapshots x 26 drone counts x 3 user densities)
+main         : Full factorial method comparison, one task per
+               (snapshot, drone count, user density)
 sensitivity  : Hyperparameter sweeps for repulsive_lloyd (beta)
-               and altitude_stagger (n_tiers) (48 SLURM tasks)
+               and altitude_stagger (n_tiers), one task per snapshot
+               (not used in the paper)
 
 Output
 ------
@@ -63,22 +68,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dronecomm.config import Config
 from dronecomm.heuristic import (
+    deploy_kmeans_baseline,
+    deploy_kmeans_global_altitude_sweep,
     deploy_analytic_heuristic,
     deploy_analytic_pca_heuristic,
     deploy_repulsive_lloyd_heuristic,
     deploy_altitude_staggered_heuristic,
     generate_grid_candidates,
     greedy_discrete_placement,
-    mst_backhaul_orientations,
-    _gateway_idx,
 )
 from dronecomm.optimize import _build_models, _evaluate_single
-from dronecomm.scenario import Scenario
 
 # ── Constants ─────────────────────────────────────────────────────────────
 
-DEFAULT_SNAPSHOT_DIR = "results/telecom_v2/snapshots"
-DEFAULT_OUTPUT_DIR   = "results/telecom_v2"
+DEFAULT_SNAPSHOT_DIR = "results/telecom_milan/snapshots"
+DEFAULT_OUTPUT_DIR   = "results/telecom_milan"
 
 DRONE_COUNTS   = list(range(5, 31))
 USER_COUNTS    = [200, 400, 800]
@@ -149,29 +153,6 @@ def subsample_users(
     return full_users[idx]
 
 
-def deploy_kmeans_baseline(
-    config: Config, user_positions: np.ndarray, seed: int,
-) -> Scenario:
-    from scipy.cluster.vq import kmeans2
-    n = config.network.n_drones
-    xy = user_positions[:, :2]
-    centroids, _ = kmeans2(xy, n, minit="points", seed=seed)
-    drone_pos = np.zeros((n, 3))
-    drone_pos[:, :2] = centroids
-    drone_pos[:, 2] = config.network.altitude_m
-    gw_idx = _gateway_idx(drone_pos)
-    bh_t, bh_a = mst_backhaul_orientations(drone_pos, gateway_idx=gw_idx)
-    return Scenario(
-        user_positions=user_positions,
-        drone_positions=drone_pos,
-        dl_tilt_rad=np.zeros(n),
-        dl_azimuth_rad=np.zeros(n),
-        bh_tilt_rad=bh_t,
-        bh_azimuth_rad=bh_a,
-        area_size_m=config.scenario.area_size_m,
-    )
-
-
 def deploy_method(
     method: str, config: Config, user_positions: np.ndarray,
     seed: int, candidates: np.ndarray | None = None,
@@ -179,6 +160,8 @@ def deploy_method(
 ) -> Scenario:
     if method == "kmeans":
         return deploy_kmeans_baseline(config, user_positions, seed=seed)
+    elif method == "kmeans_altitude_sweep":
+        return deploy_kmeans_global_altitude_sweep(config, user_positions, seed=seed)
     elif method == "analytic":
         return deploy_analytic_heuristic(config, user_positions, seed=seed)
     elif method == "analytic_pca":
@@ -400,6 +383,8 @@ def main():
     parser.add_argument("--user-counts", type=int, nargs="+", default=USER_COUNTS)
     parser.add_argument("--n-seeds", type=int, default=N_SEEDS)
     parser.add_argument("--no-greedy", action="store_true")
+    parser.add_argument("--methods", nargs="+", default=None,
+                        help="Methods to run (default: all six, plus greedy unless --no-greedy)")
     parser.add_argument("--greedy-resolution", type=int, default=GREEDY_RES)
     # Sensitivity overrides
     parser.add_argument("--sens-n-drones", type=int, default=SENS_N_DRONES)
@@ -419,10 +404,12 @@ def main():
                if not Path(args.output_dir).is_absolute()
                else Path(args.output_dir))
 
-    methods = ["kmeans", "analytic", "analytic_pca",
+    methods = ["kmeans", "kmeans_altitude_sweep", "analytic", "analytic_pca",
                "repulsive_lloyd", "altitude_stagger"]
     if not args.no_greedy:
         methods.append("greedy")
+    if args.methods is not None:
+        methods = list(args.methods)
 
     # ── Quick smoke test ──────────────────────────────────────────────
     if args.quick:
@@ -432,7 +419,7 @@ def main():
         run_main_task(
             task, snapshots, snap_dir, out_dir,
             n_seeds=3, base_seed=BASE_SEED,
-            methods=["kmeans", "analytic", "analytic_pca",
+            methods=["kmeans", "kmeans_altitude_sweep", "analytic", "analytic_pca",
                      "repulsive_lloyd", "altitude_stagger"],
             greedy_res=args.greedy_resolution,
         )

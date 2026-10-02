@@ -2,7 +2,7 @@
 
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{algorithmic}
-\usepackage{algorithm}
+% \usepackage{algorithm}
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
@@ -11,6 +11,8 @@
 \usepackage{multirow}
 \usepackage{bm}
 \usepackage{enumitem}
+\usepackage[hidelinks, bookmarks=false]{hyperref}
+\urlstyle{same}
 
 \newcommand{\vect}[1]{\bm{#1}}
 \newcommand{\posv}[1]{\vect{p}_{#1}}
@@ -19,25 +21,12 @@
 \newcommand{\dBi}{\,\mathrm{dBi}}
 \newcommand{\dBm}{\,\mathrm{dBm}}
 
+\newcounter{algorithm}
+\renewcommand{\thealgorithm}{\arabic{algorithm}}
+
 \begin{document}
+\title{Altitude Selection for Multi-UAV Deployment Under Directional Interference}
 
-% \title{Analytic Geometry-Based Heuristic for User-Aware UAV Deployment with Interference Management}
-
-\title{Geometry-Based UAV Communication Deployment for Coverage and Interference Management}
-
-% \author{
-% \IEEEauthorblockN{Abdulrahman Almanea}
-% \IEEEauthorblockA{King Abdullah University of Science and Technology (KAUST)\\
-% Thuwal, Saudi Arabia}
-
-% \IEEEauthorblockN{Balsam Alkouz}
-% \IEEEauthorblockA{King Abdullah University of Science and Technology (KAUST)\\
-% Thuwal, Saudi Arabia}
-
-% \IEEEauthorblockN{Basem Shihada}
-% \IEEEauthorblockA{King Abdullah University of Science and Technology (KAUST)\\
-% Thuwal, Saudi Arabia}
-% }
 
 \author{
 \IEEEauthorblockN{Abdulrahman Almanea, Balsam Alkouz, and Basem Shihada}
@@ -50,7 +39,10 @@ Thuwal, Saudi Arabia\\
 \maketitle
 
 \begin{abstract}
-Unmanned aerial vehicle (UAV) base stations are a promising solution for restoring connectivity in disaster scenarios where terrestrial infrastructure is destroyed, overloaded, or absent. However, a single UAV has limited capacity, and large numbers of ground users may simultaneously require connectivity, necessitating multiple drones operating as a swarm. Deploying such a swarm requires jointly determining how many drones to deploy and where to place them, balancing coverage against inter-drone interference. Existing approaches either rely on computationally expensive metaheuristic optimizers or ignore the directional, geometry-dependent interference created by antenna radiation patterns. We propose an analytic geometry-based heuristic that exploits closed-form relationships between user cluster geometry, antenna beamwidth, and inter-drone topology to derive complete deployments. The \emph{analytic heuristic} uses K-means clustering for horizontal placement, a beam-footprint formula for per-drone altitude, nadir-pointing for the userlink antenna, and a minimum spanning tree for backhaul pointing. Evaluation over 144 synthetic configurations and 24 real-world Telecom Italia snapshots shows that the analytic heuristic achieves a $+25$ percentage point mean coverage gain over a K-means baseline at negligible computational cost, with robustness to real-world spatial heterogeneity.
+Unmanned aerial vehicle (UAV) base stations are a promising solution for restoring connectivity in disaster scenarios where terrestrial infrastructure is destroyed, overloaded, or absent. However, a single UAV has limited capacity, and large numbers of ground users may simultaneously require connectivity, necessitating multiple drones operating as a swarm. Deploying such a swarm requires jointly determining how many drones to deploy and where to place them, balancing coverage against inter-drone interference. Existing approaches either rely on computationally expensive metaheuristic optimizers or ignore the directional, geometry-dependent interference created by antenna radiation patterns. We propose two user-aware heuristics that share K-means horizontal placement, nadir-pointing userlink antennas and minimum-spanning-tree backhaul pointing, and differ only in how they set altitude: an \emph{analytic heuristic} that derives a per-drone altitude from a closed-form beam-footprint rule, and an \emph{altitude-sweep} heuristic that selects one common altitude by direct search over $26$ candidate heights. Over 1{,}500 synthetic configurations, the analytic heuristic and the altitude sweep improve mean coverage over a fixed-altitude K-means baseline by $+26.3$ and $+30.2$ percentage points respectively, at mean deployment times of $5$ and $135$\,ms. On 24 real-world Telecom Italia snapshots of central Milan, the sweep beats the baseline on every snapshot at every fleet size, while the analytic heuristic leads it only with fewer than $8$ drones, exposing the limit of the closed form on weakly clustered demand.
+
+
+% Evaluation over 1{,}500 synthetic configurations and 24 real-world Telecom Italia snapshots shows that the analytic heuristic achieves a $+26.3$ percentage point mean coverage gain over a K-means baseline across the synthetic grid at negligible computational cost. We then ask how much of that gain is attributable to the closed-form rule itself, by adding an \emph{altitude-sweep} heuristic that keeps the same placement and orientations but selects a single common altitude by direct search over $26$ candidate heights. The sweep adds a further $+3.9$ points overall, reaching $+30.2$ points over the baseline, wins on every distribution and at every fleet size $N \geq 4$, and removes the one synthetic regime in which the closed-form rule is beaten by the fixed-altitude baseline, at a mean deployment-time cost of $135$\,ms.
 
 \end{abstract}
 
@@ -64,21 +56,23 @@ UAV Communications, UAV Assisted Networks, Antenna Radiation Pattern, Inter-dron
 %----------------------------------------------------------------------
 
 Unmanned aerial vehicle (UAV) base stations are a promising solution for providing connectivity in scenarios where terrestrial infrastructure is unavailable, overloaded, or impractical, such as disaster relief, temporary mass events, or coverage extension in remote and underserved areas~\cite{qiu2019,elhammouti2019,hydher2020}.
-When multiple drones operate in close proximity sharing spectrum resources, inter-drone interference becomes a dominant performance-limiting factor~\cite{betchersbrolla2025}. The deployment problem, deciding \emph{how many} drones to deploy, \emph{where} to place them, and \emph{how} to orient their antennas, is a tradeoff: more drones increase spatial coverage but also increase mutual interference.
+When multiple drones operate in close proximity sharing spectrum resources, inter-drone interference becomes a dominant performance-limiting factor~\cite{khuwaja2019}. The deployment problem, deciding \emph{how many} drones to deploy, \emph{where} to place them, and \emph{how} to orient their antennas, is a tradeoff: more drones increase spatial coverage but also increase mutual interference.
 
-Existing approaches include heuristic placement methods such as K-means clustering~\cite{consul2024}, distributed methods for joint multi-UAV 3D placement and user association~\cite{elhammouti2019}, CNN-based rapid deployment methods for multi-UAV networks~\cite{wang2024}, and optimization-driven methods for multi-UAV deployment with jointly considered user access and backhaul connectivity~\cite{wang2025multiuav}. However, these methods typically do not exploit directional antenna geometry to derive closed-form altitude and orientation rules.
+Existing approaches include heuristic placement methods such as K-means clustering~\cite{consul2024}, distributed methods for joint multi-UAV 3D placement and user association~\cite{elhammouti2019}, CNN-based rapid deployment methods for multi-UAV networks~\cite{wang2024}, and optimization-driven methods for multi-UAV deployment with jointly considered user access and backhaul connectivity~\cite{wang2025multiuav}. However, these methods typically do not tie each drone's altitude to the geometry of its own user cluster through the directional antenna pattern.
 % Existing approaches include heuristic placement methods such as K-means clustering~\cite{consul2024}, optimization-driven methods for multi-UAV deployment with jointly considered user access and backhaul connectivity~\cite{wang2025multiuav}, and electromagnetic-compatibility-aware UAV formation adjustment methods~\cite{huang2025}. However, these methods typically do not exploit directional antenna geometry to derive closed-form altitude and orientation rules.
 
-This paper bridges the gap by proposing an \emph{analytic geometry-based heuristic} that (1) derives a complete deployment (positions, altitudes, and antenna orientations) from closed-form geometric relationships in milliseconds, (2) explicitly accounts for directional antenna patterns and inter-drone interference through beam-footprint matching and minimum spanning tree (MST) backhaul topology, and (3) requires no iterative optimization or objective function evaluations.
+This paper asks how much of a multi-UAV deployment can be derived in closed form from antenna geometry, and what that costs relative to searching. We propose an \emph{analytic geometry-based heuristic} that derives positions, altitudes and antenna orientations from closed-form geometric relationships in milliseconds, with no objective-function evaluations, and measure it against an \emph{altitude sweep} that changes only the altitude assignment and selects it by direct search.
 
-The key observation motivating our approach is that ground users rarely distribute uniformly; they naturally form spatial clusters around shelters, gathering points, or areas of interest. When a drone is placed above a cluster, the spatial extent of that cluster directly determines how high the drone should fly: a dense cluster requires a lower altitude to focus the beam, while a spread-out cluster requires a higher altitude for broader coverage. Furthermore, since each drone is placed directly above its cluster centroid, nadir-pointing naturally maximises the fraction of cluster users inside the main lobe, with no tilt required. Finally, the 3D positions of deployed drones define a natural graph structure, and a minimum spanning tree over this graph provides an efficient backhaul topology that aligns antenna pointing with actual communication paths []. Together, these observations reduce the deployment problem to a set of closed-form geometric computations, eliminating the need for iterative optimization entirely. Fig.~\ref{fig:system} illustrates the proposed deployment setting. 
+The key observation motivating our approach is that ground users rarely distribute uniformly; they naturally form spatial clusters around shelters, gathering points, or areas of interest. When a drone is placed above a cluster, the spatial extent of that cluster directly determines how high the drone should fly: a dense cluster requires a lower altitude to focus the beam, while a spread-out cluster requires a higher altitude for broader coverage. Furthermore, since each drone is placed directly above its cluster centroid, nadir-pointing naturally maximises the fraction of cluster users inside the main lobe, with no tilt required. Together, these observations reduce the deployment problem to closed-form geometric computations; the altitude sweep then measures how much coverage that closed form leaves on the table. Fig.~\ref{fig:system} illustrates the deployment setting.
 
 The main contributions of this paper are summarized as follows:
 \begin{itemize}
     \item We present a geometry-dependent interference model that jointly accounts for directional antenna patterns and probabilistic air-to-ground channels in a multi-UAV deployment setting.
     \item We propose an analytic geometry-based heuristic that derives complete UAV swarm deployments from closed-form geometric relationships with no iterative optimization.
     % \item We validate the nadir-pointing UL orientation through a per-drone tilt--azimuth sweep ($1^\circ$/$5^\circ$ resolution, 36 configurations), confirming that nadir-pointing leaves on average only $0.4$ percentage points of coverage to per-drone optimisation.
-    \item We evaluate 144 synthetic configurations (three user distributions) and 5 real-world Telecom Italia snapshots at high user density.
+    \item We introduce an altitude-sweep heuristic that selects one common altitude by direct search over a coarse grid of candidate heights, and use it to quantify the coverage the closed-form rule gives up.
+    % , and show that it dominates both the fixed-altitude baseline and the closed-form rule on every distribution and at every fleet size $N \geq 4$, at a cost of $26$ system-model evaluations per deployment.
+    \item We evaluate 1{,}500 synthetic configurations (three user distributions) and 24 real-world Telecom Italia snapshots, and identify where each method wins.
 \end{itemize}
 
 
@@ -92,7 +86,7 @@ We consider a square area of side $L = 2000$\,m in which $M$ ground users requir
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/environment_figure.pdf}
+\includegraphics[width=\columnwidth]{figures/env_figure.png}
 \caption{Illustration of the deployment setting. Each drone serves a cluster of ground users through a downlink access antenna, while backhaul connectivity is maintained through an inter-drone minimum spanning tree rooted at the gateway. Drone altitude is adapted to the user cluster geometry.}
 \label{fig:system}
 \end{figure}
@@ -138,32 +132,36 @@ Air-to-air backhaul links use pure free-space path loss.
 
 \subsection{SINR and Interference}
 
-Each user~$u$ is associated with the nearest drone $j^*(u)$.
+Each user~$u$ is associated with the nearest drone $j^*(u)$ in 3D distance.
 The userlink SINR is:
 \begin{equation}
-\mathrm{SINR}_u = \frac{P_{j^*,u}^{\mathrm{rx}}}{\sigma^2 + \sum_{j \neq j^*} P_{j,u}^{\mathrm{rx}}}
+\label{eq:sinr}
+\mathrm{SINR}_u =\frac{P_{j^*,u}^{\mathrm{rx}}}{\sigma^2 + \sum_{j \neq j^*} P_{j,u}^{\mathrm{rx}}}
 \end{equation}
 where $P_{j,u}^{\mathrm{rx}} = P_{\mathrm{tx}}^{\mathrm{UL}} \cdot G^{\mathrm{UL}}(\theta_{ju}) \cdot 10^{-\mathrm{PL}/10}$ and $\sigma^2$ is the thermal noise power ($N_0 = -174\dBm$/Hz, $B = 10$\,MHz).
 All drones share a single userlink frequency band (worst-case interference).
 
 The total inter-drone backhaul interference accounts for directional gain at both ends:
 \begin{equation}
+\label{eq:bh_interf}
 I_{\mathrm{total}}^{\mathrm{bh}} = \sum_{j=1}^{N}\sum_{\substack{i=1\\i>j}}^{N} P_{\mathrm{tx}}^{\mathrm{bh}} \cdot G^{\mathrm{bh}}(\theta_{ji}^{\mathrm{tx}}) \cdot G^{\mathrm{bh}}(\theta_{ij}^{\mathrm{rx}}) \cdot L_{\mathrm{a2a}}(d_{ji})
 \end{equation}
-This geometry-dependent interference is the key quantity that deployment methods must manage.
+Backhaul interference does not enter the userlink SINR~\eqref{eq:sinr}, and hence not coverage; the altitude sweep uses it only as a tie-breaker (Section~\ref{sec:sweep}).
 
 \subsection{Performance Metrics}
 
 A user is \emph{covered} if $\mathrm{SINR}_u \geq \gamma_r = 3\dB$, a lenient minimum-connectivity requirement below the range swept by Khuwaja et al.~\cite{khuwaja2019}, whose analysis shows that coverage area is sensitive to the choice of $\gamma_r$.
+Since the noise power is fixed and all drones share one band, the only deployment-dependent term in the denominator of~\eqref{eq:sinr} is the co-channel interference. Coverage therefore measures how well a deployment keeps that interference below the serving signal, and coverage loss as $N$ grows is interference-driven; we report the mean user SINR alongside coverage where it exposes this mechanism (Fig.~\ref{fig:hotspot_vs_N}b).
+
 We focus on coverage rather than throughput, since in emergency deployments the primary objective is to establish minimum connectivity for as many users as possible.
-The primary metric is coverage percentage, defined as the fraction of covered users.
 %----------------------------------------------------------------------
 \section{Deployment Methods}
 \label{sec:methods}
 %----------------------------------------------------------------------
 
-We compare two deployment methods, both user-aware, that share the same horizontal placement (K-means centroids) but differ in how they set drone altitudes and antenna orientations.
-The K-means baseline uses a fixed altitude with nadir-pointing antennas, while the analytic heuristic derives altitude and orientations from the antenna geometry.
+We compare three deployment methods, all user-aware, that share the same horizontal placement (K-means centroids) and the same MST backhaul orientation, and differ only in how they set drone altitude.
+The K-means baseline uses a fixed altitude with nadir-pointing antennas; the analytic heuristic derives a per-drone altitude from the antenna geometry; and the altitude sweep selects a single common altitude by direct search.
+Because the three share everything but the altitude assignment, the comparison isolates that one design variable.
 
 %\begin{table}[h]
 %\centering
@@ -193,24 +191,22 @@ This method represents a standard user-aware placement with no geometric awarene
 The proposed analytic heuristic derives a complete deployment through four closed-form steps, summarized in Algorithm~\ref{alg:analytic}.
 
 \subsubsection{Step 1: Horizontal Placement via K-means}
-Since each drone serves a subset of users, the natural position that minimises the average distance to its assigned users is their centroid, making K-means, which partitions users into $K{=}N$ clusters and returns exactly those centroids, the natural choice for horizontal placement [Line~1].
-Drone $(x, y)$ positions are set at the K-means centroids of the user positions, identical to the baseline.
-This places each drone above the center of mass of its assigned user cluster.
+Drone $(x, y)$ positions are set at the K-means centroids of the user positions ($K{=}N$), identical to the baseline, placing each drone above the center of mass of its assigned cluster [Line~1].
 
 \subsubsection{Step 2: Altitude from Beam-Footprint Matching}
 \label{sec:altitude}
 
-Altitude has a strong effect on aerial-link performance and interference, making height selection a key design variable in UAV-assisted networks \cite{zhou2019}. In our heuristic, each drone's altitude is chosen so that the UL antenna's $-3$\,dB footprint matches the spatial extent of its assigned user cluster.
+Altitude is a key design variable in UAV-assisted networks~\cite{zhou2019}, and with directional antennas its coverage-optimal value depends on the beamwidth~\cite{galkin2017}. Mozaffari et al.~\cite{mozaffari2016} use the footprint relation between altitude and beamwidth to place multiple UAVs at a common altitude over a circular target area, and He et al.~\cite{he2018beamwidth} jointly optimize the altitude and beamwidth of a single UAV hovering over user clusters. We instead set each drone's altitude from its own cluster's spread, under co-channel interference from the rest of the fleet, so that the UL antenna's $-3$\,dB footprint matches that spread.
 
 For a nadir-pointing antenna with half-beamwidth $\theta_{3\mathrm{dB}}/2$, the ground-footprint radius is $z \tan(\theta_{3\mathrm{dB}}/2).$
-We set this radius equal to the cluster spread $\sigma_j$ (the empirical standard deviation of user positions in cluster $j$). This gives the altitude rule
+We set this radius equal to the cluster spread $\sigma_j$, the pooled standard deviation of the users' $x$ and $y$ offsets from the centroid of cluster $j$ ($50$\,m for a single-user and $100$\,m for an empty cluster). This gives the altitude rule
 \begin{equation}
 \label{eq:altitude}
 z_j = \frac{\sigma_j}{\tan(\theta_{3\mathrm{dB}}/2)},
 \end{equation}
 which is then clamped to the feasible range $[50, 300]$\,m.
 
-This rule adapts altitude to the geometry of the assigned users. Dense clusters, with small $\sigma_j$, are served from lower altitudes, producing tighter footprints and stronger received signal strength. More spatially dispersed clusters require higher altitudes so that the illuminated area remains wide enough to cover the users assigned to that drone.
+Dense clusters are thus served from lower altitudes with tighter footprints, and dispersed clusters from higher ones.
 %A drone that flies too high wastes signal power on empty ground, while one that flies too low illuminates only a fraction of its cluster; the right altitude is therefore the one that makes the antenna's $-3\,$dB footprint exactly cover the cluster [Lines~3--4].
 %Each drone's altitude $(z)$ is set so that the UL antenna's $-3\dB$ beam footprint matches the spatial extent of its user cluster.
 %For a nadir-pointing antenna with half-beamwidth $\theta_{3\mathrm{dB}}/2$, the ground footprint radius is $z \tan(\theta_{3\mathrm{dB}}/2)$.
@@ -223,22 +219,25 @@ This rule adapts altitude to the geometry of the assigned users. Dense clusters,
 % Dense clusters (small $\sigma_j$) get lower altitudes, yielding tighter beams and stronger per-user signal; spread-out clusters get higher altitudes to maintain broad coverage.
 
 \subsubsection{Step 3: Userlink Orientation}
-Because K-means places each drone at the centroid of its assigned user cluster, the drone's horizontal position $(x_j, y_j)$ coincides exactly with the ground centroid $(\bar{x}_j, \bar{y}_j)$ of that cluster [Line~5].
-Consequently, pointing the UL boresight toward the ground centroid always reduces to nadir:
+Each drone points its UL boresight at the centroid of its assigned users [Line~6]. Since K-means places the drone above that centroid, this is nadir up to K-means' finite convergence, with a tilt under $1^\circ$ for most drones:
 \begin{equation}
-\tau_j^{\mathrm{UL}} = 0 \quad (\text{nadir})
+\tau_j^{\mathrm{UL}} \approx 0 \quad (\text{nadir})
 \end{equation}
-No tilt computation is needed; the UL antenna is simply set to nadir.
-This means the only difference between the K-means baseline and the analytic heuristic is the altitude assignment (Step~2): both methods use nadir-pointing UL antennas and MST backhaul, but the analytic heuristic adapts each drone's altitude to its cluster geometry rather than fixing it at 150\,m.
 
 \subsubsection{Step 4: Backhaul Orientation via MST}
-Inter-drone interference grows rapidly when backhaul beams are pointed arbitrarily; a spanning-tree topology guarantees connectivity with the minimum number of active links, and rooting it at the drone nearest the ground infrastructure keeps the uplink path short [Lines~7--11].
-A minimum spanning tree (MST) is computed over the 3D drone positions using Euclidean distance. The tree is rooted at the \emph{gateway drone}, defined as the drone whose horizontal position $(x_j, y_j)$ is closest to the area origin $(0,0)$, placing it at the edge of the deployment area nearest to the ground infrastructure.
-Each non-gateway drone points its BH antenna toward its MST parent. The gateway drone points its BH antenna horizontally ($\tau_g^{\mathrm{bh}} = \pi/2$, $\alpha_g^{\mathrm{bh}} = 0$) toward the ground base station. This produces a connected tree topology that minimises total backhaul link distance and aligns BH antennas along actual communication paths.
+A minimum spanning tree (MST) over the 3D drone positions is rooted at the \emph{gateway drone}, the drone closest to the area origin, where the ground infrastructure is assumed [Lines~7--11]. Each other drone points its BH antenna at its MST parent; the gateway points horizontally ($\alpha_g^{\mathrm{bh}} = 0$). Since backhaul interference does not enter the userlink SINR, this step does not affect coverage; it applies the same MST construction in all three methods.
 
-\begin{algorithm}[ht]
-\caption{Analytic Geometry-Based Deployment}
+\begin{figure}[t]
+\refstepcounter{algorithm}
 \label{alg:analytic}
+\centering
+\begin{minipage}{\columnwidth}
+\hrule
+\vspace{2pt}
+\textbf{Algorithm~\thealgorithm.} Analytic Geometry-Based Deployment
+\vspace{2pt}
+\hrule
+
 \begin{algorithmic}[1]
 \REQUIRE User positions $\{(x_u, y_u, 0)\}_{u=1}^{M}$, fleet size $N$, antenna specs
 \ENSURE Drone positions, UL and BH orientations
@@ -247,19 +246,61 @@ Each non-gateway drone points its BH antenna toward its MST parent. The gateway 
     \STATE $(x_j, y_j) \leftarrow$ centroid of $C_j$
     \STATE $\sigma_j \leftarrow \mathrm{std}(C_j)$
     \STATE $z_j \leftarrow \mathrm{clip}\!\left(\sigma_j / \tan(\theta_{3\mathrm{dB}}/2),\; 50,\; 300\right)$
-    \STATE $\tau_j^{\mathrm{UL}} \leftarrow 0$ \COMMENT{nadir: drone is at cluster centroid}
+    \STATE $\tau_j^{\mathrm{UL}}, \alpha_j^{\mathrm{UL}} \leftarrow$ point toward centroid of $C_j$ \COMMENT{$\approx$ nadir}
 \ENDFOR
 \STATE MST $\leftarrow$ minimum spanning tree over $\{\posv{j}\}_{j=1}^{N}$
 \STATE Gateway $g \leftarrow \arg\min_j \|(x_j, y_j)\|$ \COMMENT{closest to origin corner}
 \STATE Root MST at $g$; BFS to assign parent $\pi(j)$ for each $j \neq g$
-\STATE $\tau_g^{\mathrm{bh}} \leftarrow \pi/2$;\; $\alpha_g^{\mathrm{bh}} \leftarrow 0$ \COMMENT{gateway points toward ground infrastructure}
+\STATE $\tau_g^{\mathrm{bh}} \leftarrow \pi/2$;\; $\alpha_g^{\mathrm{bh}} \leftarrow 0$ \COMMENT{gateway points horizontally}
 \FOR{$j = 1$ to $N$, $j \neq g$}
     \STATE $\tau_j^{\mathrm{bh}}, \alpha_j^{\mathrm{bh}} \leftarrow$ point toward $\posv{\pi(j)}$
 \ENDFOR
 \end{algorithmic}
-\end{algorithm}
+\vspace{2pt}
+\hrule
+\end{minipage}
+\end{figure}
 
-The entire procedure involves one K-means run, $N$ closed-form altitude and orientation computations, and one MST construction, with a total complexity of $\mathcal{O}(MN + N^2)$.
+
+% \begin{algorithm}[ht]
+% \caption{Analytic Geometry-Based Deployment}
+% \label{alg:analytic}
+% \begin{algorithmic}[1]
+% \REQUIRE User positions $\{(x_u, y_u, 0)\}_{u=1}^{M}$, fleet size $N$, antenna specs
+% \ENSURE Drone positions, UL and BH orientations
+% \STATE $\{C_1, \ldots, C_N\} \leftarrow$ K-means$(M \text{ users}, N)$
+% \FOR{$j = 1$ to $N$}
+%     \STATE $(x_j, y_j) \leftarrow$ centroid of $C_j$
+%     \STATE $\sigma_j \leftarrow \mathrm{std}(C_j)$
+%     \STATE $z_j \leftarrow \mathrm{clip}\!\left(\sigma_j / \tan(\theta_{3\mathrm{dB}}/2),\; 50,\; 300\right)$
+%     \STATE $\tau_j^{\mathrm{UL}} \leftarrow 0$ \COMMENT{nadir: drone is at cluster centroid}
+% \ENDFOR
+% \STATE MST $\leftarrow$ minimum spanning tree over $\{\posv{j}\}_{j=1}^{N}$
+% \STATE Gateway $g \leftarrow \arg\min_j \|(x_j, y_j)\|$ \COMMENT{closest to origin corner}
+% \STATE Root MST at $g$; BFS to assign parent $\pi(j)$ for each $j \neq g$
+% \STATE $\tau_g^{\mathrm{bh}} \leftarrow \pi/2$;\; $\alpha_g^{\mathrm{bh}} \leftarrow 0$ \COMMENT{gateway points toward ground infrastructure}
+% \FOR{$j = 1$ to $N$, $j \neq g$}
+%     \STATE $\tau_j^{\mathrm{bh}}, \alpha_j^{\mathrm{bh}} \leftarrow$ point toward $\posv{\pi(j)}$
+% \ENDFOR
+% \end{algorithmic}
+% \end{algorithm}
+
+The entire procedure involves one K-means run, $N$ closed-form altitude and orientation computations, and one MST construction, with a total complexity of $O(MN + N^2)$.
+
+\subsection{Global Altitude Sweep}
+\label{sec:sweep}
+
+The analytic rule~\eqref{eq:altitude} infers altitude from cluster geometry alone: it never measures what that altitude achieves. The altitude sweep replaces the inference with a direct measurement. Horizontal placement, userlink orientation and backhaul orientation are exactly those of Section~\ref{sec:analytic}; only Step~2 changes.
+
+Let $\mathcal{Z} = \{50, 60, \ldots, 300\}$\,m be a grid of $|\mathcal{Z}| = 26$ candidate altitudes spanning the same feasible range the analytic rule is clamped to. For each $z \in \mathcal{Z}$ the sweep places all $N$ drones at that common altitude, evaluates the resulting deployment with the system model of Section~\ref{sec:system} on the \emph{known} user layout, and retains the altitude with the highest coverage, breaking ties by $5$th-percentile SINR, then by lower backhaul interference~\eqref{eq:bh_interf}, and then by the lower altitude:
+\begin{equation}
+\label{eq:sweep}
+z^{\mathrm{sw}} = \arg\max_{z \in \mathcal{Z}} \; C\big(\text{K-means}(N),\, z\big),
+\end{equation}
+where $C(\cdot)$ is the coverage of the fully specified deployment. Searching altitude by evaluation rather than deriving it is the approach taken by Hydher et al.~\cite{hydher2020}, who select UAV heights by constrained exhaustive search or particle swarm optimization; the sweep is the simplest instance of it, over one scalar.
+
+Two properties matter for the comparison. First, the sweep is \emph{less} expressive than the analytic rule: it assigns one altitude to the whole fleet, whereas~\eqref{eq:altitude} adapts per drone. Any advantage it shows therefore comes from objective feedback, not from finer adaptation. Second, it costs $|\mathcal{Z}|$ evaluations of the system model instead of none, raising complexity to $O\big(|\mathcal{Z}|(MN + N^2)\big)$. 
+% Since the deployment is planned once before launch and the user layout is already assumed known, this remains a deployment-time cost of well under a second, but it is no longer the zero-evaluation regime the analytic heuristic occupies.
 
 %\subsection{Greedy Grid Search}
 %
@@ -273,16 +314,18 @@ The entire procedure involves one K-means run, $N$ closed-form altitude and orie
 %----------------------------------------------------------------------
 
 \section{Performance Evaluation}
-We evaluate the proposed analytic heuristic against a K-means baseline across synthetic and real-world configurations.
+
 
 %----------------------------------------------------------------------
 \subsection{Simulation Parameters}
 \label{sec:setup}
 %----------------------------------------------------------------------
 
-Simulations are conducted over a $2000 \times 2000$\,m urban area at a carrier frequency of $f_c = 2.0$\,GHz, with a bandwidth of $10$\,MHz and an SINR coverage threshold of $3$\,dB. The full set of simulation parameters is listed in Table~\ref{tab:params}.
+Table~\ref{tab:params} lists the simulation parameters. 
+The simulation code is publicly available online.\footnote{\url{https://github.com/jalmanea/geometrybaseduavcommpaper}}
 
-Some baseline propagation and deployment parameters are aligned with Hydher et al.~\cite{hydher2020}, particularly the urban air-to-ground channel parameters, the userlink transmit power, and the minimum UAV altitude. The remaining parameters are chosen to reflect the proposed directional-link model.
+
+Some baseline propagation and deployment parameters are aligned with Hydher et al.~\cite{hydher2020}, particularly the urban LoS-probability parameters $a$ and $b$, the userlink transmit power, and the minimum UAV altitude. The remaining parameters are chosen to reflect the proposed directional-link model.
 
 \begin{table}[t]
 \centering
@@ -292,7 +335,7 @@ Some baseline propagation and deployment parameters are aligned with Hydher et a
 \toprule
 Parameter & Value \\
 \midrule
-Area size $L$ & $2000$\,m \\
+Area side length $L$ & $2000$\,m \\
 Carrier frequency $f_c$ & $2.0$\,GHz \\
 Bandwidth $B$ & $10$\,MHz \\
 UL transmit power & $30\dBm$ ($1$\,W) \\
@@ -301,11 +344,10 @@ Noise PSD $N_0$ & $-174\dBm$/Hz \\
 SINR threshold $\gamma_r$ & $3\dB$ \\
 K-means baseline altitude & $150$\,m \\
 Analytic altitude range & $[50, 300]$\,m \\
+Altitude sweep grid $\mathcal{Z}$ & $\{50, 60, \ldots, 300\}$\,m ($26$ values) \\
 UL antenna $(G_{\max}, \theta_{3\mathrm{dB}}, A_{\mathrm{SLA}})$ & $(18\dBi, 60^\circ, 20\dB)$ \\
 BH antenna $(G_{\max}, \theta_{3\mathrm{dB}}, A_{\mathrm{SLA}})$ & $(12\dBi, 30^\circ, 25\dB)$ \\
-Environment & Urban \\
-Seeds per condition (telecom) & 20 \\
-Seeds per config (synthetic) & 20 \\
+Seeds (synthetic / telecom) & 20 \\
 User density (telecom) & $M = 800$ \\
 %Greedy grid resolution & $40 \times 40$ \\
 \bottomrule
@@ -319,13 +361,7 @@ User density (telecom) & $M = 800$ \\
 
 \subsubsection{Experimental Setup}
 
-We evaluate all methods over a grid of 1500 configurations:
-\begin{itemize}
-    \item Fleet sizes: $N \in \{1, 2, \ldots, 50\}$
-    \item User counts: $M \in \{100, 200, \ldots, 1000\}$
-    \item Distributions: clustered, hotspot, uniform
-\end{itemize}
-yielding $50 \times 10 \times 3 = 1{,}500$ configurations.
+We evaluate all methods over $50 \times 10 \times 3 = 1{,}500$ configurations: fleet sizes $N \in \{1, 2, \ldots, 50\}$, user counts $M \in \{100, 200, \ldots, 1000\}$ (a target for clustered and hotspot layouts, whose cluster sizes are random) and three user distributions.
 Each configuration is evaluated over 20 independent Monte Carlo seeds. Each seed generates a fresh user layout from the specified distribution; the deployment method receives this layout, deploys, and is evaluated on the same layout. All reported metrics are averaged across seeds.
 
 Three spatial distributions model distinct operational scenarios:
@@ -337,81 +373,75 @@ Three spatial distributions model distinct operational scenarios:
 
 \subsubsection{Results}
 
-\paragraph{Aggregate Performance.}
+\paragraph{Aggregate Performance}
 Fig.~\ref{fig:coverage_by_dist} presents aggregate coverage across all 1{,}500 synthetic
 configurations, broken down by user distribution.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth, trim={0 3mm 0 7mm}, clip]{figures/fig_coverage_by_dist.pdf}
-\caption{Mean coverage by user distribution across 1{,}500 synthetic configurations
-($N\in\{1,\ldots,50\}$, $M\in\{100,\ldots,1000\}$, 20 seeds).
-$\Delta$ annotations show Analytic\,$-$\,K-Means in percentage points.
-Analytic wins 483/500 clustered and 485/500 hotspot configurations;
-K-Means wins 320/500 uniform configurations.}
+\includegraphics[width=0.95\columnwidth]{figures/fig_sweep_coverage_by_dist.pdf}
+\caption{Mean coverage by user distribution over 1{,}500 synthetic configurations.
+The altitude sweep leads on all three, and is the only method that does not lose to another on any of them.}
 \label{fig:coverage_by_dist}
 \end{figure}
 
-On clustered and hotspot distributions the analytic heuristic gains $+37.6$ and $+42.5$ percentage points respectively, while simultaneously reducing interference.
-On the uniform distribution, where users have no spatial structure, K-means with its fixed 150\,m altitude slightly outperforms the analytic heuristic ($89.5\%$ vs.\ $88.5\%$), because the altitude-adaptation formula infers large cluster spread and raises altitude, slightly widening beams. However, even on uniform distributions, the analytic heuristic overtakes K-means at $N \geq 41$ as interference accumulates ($+3.5$\,pp at $N{=}50$).
-Overall, the analytic heuristic leads by $+26.3$\,pp across all 1{,}500 configurations. All build times are under 10\,ms.
+On clustered and hotspot distributions the analytic heuristic gains $+37.6$ and $+42.5$ percentage points respectively over K-means.
+On the uniform distribution, where users have no spatial structure, K-means with its fixed 150\,m altitude slightly outperforms the analytic heuristic ($89.5\%$ vs.\ $88.5\%$), because the altitude-adaptation formula infers a large cluster spread and, for $N \lesssim 30$, flies above $150$\,m, widening beams. However, even on uniform distributions, the analytic heuristic overtakes K-means at $N \geq 41$ as interference accumulates ($+3.5$\,pp at $N{=}50$).
+Overall, the analytic heuristic leads by $+26.3$\,pp across all 1{,}500 configurations.
 
-\paragraph{Per-Configuration Breakdown.}
+The altitude sweep leads by $+30.2$\,pp over K-means and by $+3.9$\,pp over the analytic heuristic, reaching $80.6\%$ mean coverage against $76.7\%$ and $50.4\%$. Its margin over the analytic rule is largest where that rule is least well matched to the layout: $+6.1$\,pp on clustered and $+4.5$\,pp on uniform demand, against only $+1.0$\,pp on hotspot demand, where both methods approach the $50$\,m altitude floor and the sweep has little left to find. The uniform case is the informative one: it is the single regime in which the closed-form rule loses to the fixed-altitude baseline, and the sweep removes that loss, reaching $92.9\%$ against $89.5\%$ for K-means and $88.5\%$ for the analytic rule.
+
+Build times remain compatible with rapid deployment. K-means and the analytic heuristic average $2.3$ and $5.0$\,ms respectively; the sweep averages $135$\,ms and never exceeds $0.91$\,s across all $30{,}000$ runs, the cost of its $26$ system-model evaluations.
+
+The two altitude-adaptive methods therefore trade model dependence against coverage. The analytic rule never evaluates the system model, so its altitude does not depend on the channel and antenna models being accurate, and it stays negligible when deployments are recomputed often or on board. The sweep's extra coverage is only as reliable as the model it searches, and its cost grows with $|\mathcal{Z}|$ and $MN$, exponentially so if altitudes were searched per drone. It suits a deployment planned offline with a trusted model, where that cost stays well under a second.
+
+% Table~\ref{tab:sweep_alt} records the altitude the sweep selects. It is not a constant: the chosen height falls essentially monotonically with fleet size on both clustered and uniform demand, from $112$\,m to $50$\,m and from $267$\,m to $89$\,m respectively, and sits within $3$\,m of the $50$\,m floor at every fleet size $N \geq 4$ on hotspot demand. This is the same qualitative behaviour the analytic rule prescribes, obtained without any geometric model, and it explains why the fixed $150$\,m baseline is mismatched at both ends of the fleet-size range.
+
+% \begin{table}[t]
+% \centering
+% \caption{Altitude selected by the sweep (m), averaged over $M$ and seeds}
+% \label{tab:sweep_alt}
+% \begin{tabular}{@{}lccccc@{}}
+% \toprule
+% Distribution & $N{=}5$ & $N{=}10$ & $N{=}20$ & $N{=}30$ & $N{=}50$ \\
+% \midrule
+% Clustered & $112$ & $72$  & $56$ & $50$ & $50$ \\
+% Hotspot   & $52$  & $50$  & $50$ & $50$ & $50$ \\
+% Uniform   & $267$ & $195$ & $140$ & $116$ & $89$ \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
+
+\paragraph{Per-Configuration Breakdown}
 Fig.~\ref{fig:hotspot_vs_N} reveals the key asymmetry between methods as fleet size grows.
 On the hotspot distribution, K-means coverage collapses rapidly, from $64.8\%$ at $N{=}5$ to effectively $0\%$ by $N{=}40$, because its fixed
 150\,m altitude spreads beams too wide once drones become dense relative to the hotspot footprint,
-leaving large fractions of users in inter-beam nulls.
+so neighbouring beams overlap and co-channel interference swamps the serving signal.
 The analytic heuristic adapts altitude to the inferred cluster spread, keeping beams focused and
-sustaining $92.0\%$ at $N{=}5$ and still $22.1\%$ at $N{=}50$.
-On clustered distributions, the analytic heuristic plateaus at approximately $80$--$83\%$ for $N \geq 10$, while K-means degrades monotonically from $94.2\%$ at $N{=}5$ to $12.0\%$ at $N{=}50$.
+sustaining $92.0\%$ at $N{=}5$ and still $22.1\%$ at $N{=}50$; the sweep tracks it closely at $93.5\%$ and $23.3\%$, since on hotspot layouts both approach the $50$\,m altitude floor as $N$ grows.
+Fig.~\ref{fig:hotspot_vs_N}b shows the interference mechanism behind this divergence: under K-means the mean user SINR falls below the $\gamma_r = 3$\,dB threshold at $N{=}11$, whereas both altitude-adaptive methods keep it above the threshold up to $N{=}33$ (analytic) and $N{=}34$ (sweep).
+On clustered distributions the separation is much wider: the analytic heuristic plateaus at approximately $80$--$88\%$ for $N \geq 10$ and the sweep at $86$--$93\%$, while K-means degrades monotonically from $94.2\%$ at $N{=}5$ to $12.0\%$ at $N{=}50$. At $N{=}50$ the three methods stand at $12.0\%$, $80.2\%$ and $86.4\%$.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth, trim={0 3mm 0 5mm}, clip]{figures/fig_hotspot_vs_N.pdf}
-\caption{Mean coverage vs.\ fleet size on the hotspot distribution, averaged over
-$M\in\{100,\ldots,1000\}$ users and 20 seeds (shaded band: $\pm$1\,std across $M$).
-K-Means coverage collapses as $N$ grows because the fixed 150\,m altitude spreads beams
-too wide for the increasing drone density. The Analytic heuristic adapts altitude to cluster
-geometry and sustains substantially higher coverage across the full $N{=}1$--$50$ range.}
+\includegraphics[width=0.95\columnwidth]{figures/fig_sweep_hotspot_vs_N.pdf}
+\caption{(a) Mean coverage and (b) mean user SINR versus fleet size on hotspot layouts, averaged over
+$M\in\{100,\ldots,1000\}$ users and 20 seeds. Shading shows $\pm$1\,std across $M$; the dotted line marks the coverage threshold $\gamma_r$.}
 \label{fig:hotspot_vs_N}
 \end{figure}
 
-\paragraph{Optimal Fleet Size.}
-The extended sweep to $N{=}50$ reveals a striking divergence. On clustered distributions, the analytic heuristic plateaus near $80$--$83\%$ coverage for $N \geq 10$, losing only $15$\,pp from its $N{=}5$ value of $95.3\%$ even at $N{=}50$. K-means, by contrast, degrades monotonically from $94.2\%$ at $N{=}5$ to $12.0\%$ at $N{=}50$, a $68.2$\,pp gap. On hotspot distributions, K-means reaches $0\%$ coverage by $N{=}40$, while the analytic heuristic still covers $22.1\%$ of users at $N{=}50$. Even on uniform distributions, where K-means holds a mid-range advantage ($N \in [9, 40]$), the analytic heuristic overtakes K-means at $N{=}41$ as interference accumulates.
+\paragraph{Scaling with Fleet Size}
+The sweep is above both other methods at every fleet size $N \geq 4$ on all three distributions, and below $N{=}4$ it is never behind by more than $0.1$\,pp. On uniform demand it is the only method whose coverage \emph{increases} on net with fleet size, from $93.0\%$ at $N{=}5$ to $93.5\%$ at $N{=}50$, because it is free to descend as the cells shrink while the baseline is stuck at $150$\,m and the analytic rule over-estimates the spread of a structureless layout.
 
-This confirms that altitude adaptation provides a robust defence against interference scaling: where K-means coverage collapses under co-channel interference at large fleet sizes, the analytic heuristic degrades gracefully.
 
 %----------------------------------------------------------------------
 \subsection{UL Orientation Validation}
 \label{sec:orientation_validation}
 %----------------------------------------------------------------------
 
-\subsubsection{Experimental Setup}
+To test nadir pointing, we optimise each drone's UL tilt ($0^\circ$--$60^\circ$, $1^\circ$ steps) and azimuth ($5^\circ$ steps) individually, holding all other drones at their defaults, over 36 configurations ($N \in \{5,10,\ldots,30\}$, $M \in \{200, 400\}$, three distributions, $5$ seeds). Re-orienting a single drone recovers on average $0.40$\,pp of coverage for the analytic heuristic (max $0.78$\,pp, uniform, $N{=}5$) and $0.34$\,pp for the sweep (max $0.71$\,pp, hotspot, $N{=}25$), against $0.77$\,pp for K-means (max $4.47$\,pp, hotspot, $N{=}5$), so no single drone gains much by tilting. Applying every drone's best angle at once recovers more, $+3.9$\,pp for the analytic heuristic and $+3.3$\,pp for the sweep on average ($+7.7$\,pp for K-means), so nadir pointing is a good default but not jointly optimal.
 
-To verify that the analytic nadir-pointing UL orientation is near-optimal, we conduct a per-drone angle sweep across all 36 configurations ($N \in \{5,10,15,20,25,30\}$, $M \in \{200, 400\}$, three distributions). Each drone's UL tilt and azimuth is optimized independently while all other drones are held at their method defaults, sweeping tilts $0^\circ$--$60^\circ$ (every $1^\circ$) and azimuths $0^\circ$--$355^\circ$ (every $5^\circ$), yielding 4{,}392 combinations per drone.
 
-\subsubsection{Results}
-
-The per-drone sweep optimises each drone's UL tilt and azimuth independently while all other drones are held at their defaults.
-Table~\ref{tab:orientation_sweep} summarises the mean per-drone coverage gain (the improvement achievable by individually re-orienting any single drone) averaged over 36 configurations.
-
-\begin{table}[t]
-\centering
-\caption{Mean Per-Drone Coverage Gain from Angle Optimisation (36 configurations, $N \in \{5\text{--}30\}$, $M \in \{200, 400\}$)}
-\label{tab:orientation_sweep}
-\begin{tabular}{@{}lccc@{}}
-\toprule
-Method & Mean $\Delta$Cov (pp) & Max $\Delta$Cov (pp) & Distribution \\
-\midrule
-Analytic (nadir) & $0.40$ & $0.78$ & uniform, $N{=}5$ \\
-K-means (nadir)  & $0.77$ & $4.47$ & hotspot, $N{=}5$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The analytic nadir-pointing orientation leaves on average only $0.40$ percentage points of coverage to per-drone optimisation, with no single configuration exceeding $0.78$\,pp.
-By contrast, the K-means nadir baseline leaves larger room for improvement, especially on hotspot distributions (up to $4.47$\,pp), because K-means centroids may not align with the densest user subregions after cluster splitting at large fleet sizes.
-This confirms that for the analytic heuristic, where each drone is placed directly above its cluster centroid, nadir-pointing is near-optimal across all tested fleet sizes and distributions, leaving little room for per-drone fine-tuning.
 
 %----------------------------------------------------------------------
 \subsection{Real-World Validation}
@@ -421,9 +451,9 @@ This confirms that for the analytic heuristic, where each drone is placed direct
 \subsubsection{Experimental Setup}
 
 To validate the heuristics on realistic user distributions we use the Telecom Italia
-Trentino dataset~\cite{barlacchi2015}, which records SMS, call,  and internet activity
-in 10-minute bins for each $235 \times 235$\,m grid cell across the Trentino
-province. For each (date, hour) pair we:
+Milan dataset~\cite{barlacchi2015,telecomitalia2015milan}, which records SMS, call, and internet activity
+in 10-minute bins for each square of a $100 \times 100$ grid of $235 \times 235$\,m
+squares covering the city. For each (date, hour) pair we:
 \begin{enumerate}[label=(\alph*)]
     \item Identify the $10 \times 10$-cell crop with the highest aggregate activity
           via a sliding-window maximum (hottest $2{,}350 \times 2{,}350$\,m patch).
@@ -431,65 +461,44 @@ province. For each (date, hour) pair we:
           and rescale to a $2{,}000 \times 2{,}000$\,m area.
 \end{enumerate}
 
-\textbf{Balanced snapshot design.}
-We use a balanced $4 \times 2 \times 3$ factorial design over 24 snapshots:
-\begin{itemize}
-    \item \textbf{4 weeks:} early November (Nov~3--4), mid-November (Nov~9, 14), late November (Nov~20, 24), and mid-December (Dec~5, 8).
-    \item \textbf{2 day types:} one weekday and one weekend day per week.
-    \item \textbf{3 hours:} 10:00, 15:00, and 20:00 UTC, spanning morning, afternoon, and evening demand.
-\end{itemize}
-This design is balanced across temporal covariates (day-of-week, time-of-day, month) and spans a wide range of real-world spatial demand patterns.
+\textbf{Balanced snapshot design:}
+We use a balanced $4 \times 2 \times 3$ design over 24 snapshots: four weeks (Nov~3/4, Nov~9/14, Nov~20/24 and Dec~5/8), one weekday and one weekend day per week, at 10:00, 15:00 and 20:00 UTC.
 
-\textbf{Replication and seed design.}
-We use $R = 20$ seeds per condition. Each seed provides an independent K-means initialisation and independently subsamples $M$ users from the full 800-user pool for that snapshot, so seed variation captures both initialisation noise and sampling variation. All methods within a seed receive the \emph{same} user subsample, constituting a paired (within-block) design. This yields $24 \times 30 \times 8 \times 2 \times 20 = 230{,}400$ evaluations across 24 snapshots, $N \in \{1,\ldots,30\}$ drone counts, $M \in \{100,200,\ldots,800\}$ user levels, and 2 methods.
+\textbf{Replication and seed design:}
+We use $R = 20$ seeds per condition; each seed draws an independent K-means initialisation and a subsample of $M$ users from the 800-user pool (the full pool at $M = 800$), shared by all methods (paired design). The reported subset comprises $24 \times 26 \times 8 \times 3 \times 20 = 299{,}520$ evaluations ($N \in \{5,\ldots,30\}$, $M \in \{100,\ldots,800\}$, 3 methods). We report $M = 800$; the ordering is the same when pooled over $M$.
 
 \subsubsection{Results}
 
-Fig.~\ref{fig:telecom_coverage} presents mean coverage across
-24 temporal snapshots from the Telecom Italia dataset, evaluated over 20 seeds at
-$M = 800$ users per snapshot.
+Fig.~\ref{fig:telecom_coverage} shows coverage at $M = 800$. The sweep beats K-means on all 24 snapshots at every $N$; with seeds averaged within each snapshot, the paired $95\%$ confidence interval of the gain excludes zero at every $N$. The margin is largest at $N{=}5$ ($+6.3$\,pp) and smallest at $N{=}16$ ($+0.13$\,pp, CI $[0.11, 0.15]$). The analytic heuristic leads K-means only for $N \leq 7$ ($+5.8$\,pp at $N{=}5$) and trails it for every $N \geq 8$, by up to $6.3$\,pp at $N{=}16$ and $2.9$\,pp at $N{=}30$, both at $M = 800$ and pooled over $M$. Milan demand is broad rather than clustered, so, as on uniform synthetic demand, the footprint rule infers a large spread and flies high, from about $300$\,m at $N{=}5$ to $170$\,m at $N{=}30$, against about $250$ to $110$\,m for the sweep, which leads it by $5.4$\,pp on average. Means over $N$ are $90.7\%$, $89.1\%$ and $85.3\%$ for the sweep, K-means and the analytic heuristic.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth, trim={0 3mm 0 5mm}, clip]{figures/fig_telecom_coverage_vs_N.pdf}
+\includegraphics[width=0.95\columnwidth]{figures/fig_sweep_telecom_vs_N.pdf}
 \caption{Coverage vs.\ fleet size $N$ averaged over 24 Telecom Italia snapshots
 ($M=800$ users, $R=20$ seeds). Shading denotes $\pm 1\,\sigma$ across snapshots.}
 \label{fig:telecom_coverage}
 \end{figure}
 
-Several patterns emerge at $M{=}800$, where 5 drones must each serve on average 160 users:
 
-\begin{itemize}
-    \item \textbf{Coverage is non-monotone for K-means.} Coverage rises from 88.4\% at $N{=}5$ to a peak of 88.8\% at $N{=}8$, direct evidence that more drones do improve coverage when user load is high enough to benefit from additional spatial subdivision. Beyond $N{=}8$, coverage degrades monotonically to 69.7\% at $N{=}30$ ($-19.1$\,pp from the peak), driven by two compounding mechanisms: (i)~\emph{hotspot crowding}, where K-means splits existing clusters into sub-clusters rather than extending reach into sparser regions, concentrating more drones in a shrinking footprint; and (ii)~\emph{SINR collapse}, where drone proximity raises the co-channel interference floor, pulling previously-covered users below the $\gamma_r = 3\,\dB$ threshold. The fixed 150\,m altitude amplifies both effects by providing no vertical separation between interfering beams.
-    \item \textbf{Analytic maintains a stable floor.} Coverage falls from 87.9\% at $N{=}5$ to a plateau of approximately 78\% for $N \in [12, 25]$, then partially recovers to 79.5\% at $N{=}30$. The adaptive per-drone altitude shrinks as clusters become denser with added drones, providing vertical beam separation that suppresses mutual interference and limits total coverage loss to only $-8.4$\,pp compared to $-19.1$\,pp for K-means.
-    \item \textbf{Analytic surpasses K-means at $N \geq 23$.} The crossover occurs at $N{=}23$ (+0.3\,pp) and the advantage grows to $+9.7$\,pp at $N{=}30$, where interference management is most critical. This confirms that altitude adaptation, not horizontal placement, is the decisive differentiator at high drone densities.
-\end{itemize}
-
-%----------------------------------------------------------------------
-\subsection{Discussion}
-\label{sec:discussion}
-%----------------------------------------------------------------------
-
-The core reason K-means degrades at large fleet sizes is that its objective, minimizing within-cluster geometric distortion, is blind to the interference term in the SINR denominator. Adding drones near a demand hotspot tightens spatial coverage but simultaneously raises the interference floor for all nearby users, potentially pulling them below the coverage threshold even though their serving drone is closer. The analytic heuristic breaks this tradeoff through per-drone altitude adaptation: as clusters tighten, drones descend to narrow their beams and increase vertical separation from neighbours, suppressing co-channel interference without sacrificing proximity. This mechanism explains the widening advantage observed across both synthetic and real-world experiments as fleet size grows, and the non-monotone coverage curves imply a practical fleet-sizing constraint: beyond a density-dependent optimal~$N^*$, adding co-channel drones is counterproductive without frequency planning.
-
-The heuristic inherits K-means horizontal placement and therefore shares its limitations on spatially uniform distributions, where the altitude formula infers large cluster spread and raises drones higher than necessary; this disadvantage reverses at large fleet sizes where interference suppression dominates. The MST backhaul topology minimizes total link distance rather than interference or throughput. Finally, the Telecom Italia evaluation covers 24~temporal snapshots at a single user density ($M{=}800$); broader validation across propagation environments and density levels would strengthen generalisation claims.
 
 %----------------------------------------------------------------------
 \section{Conclusion}
 \label{sec:conclusion}
 %----------------------------------------------------------------------
 
-We presented a closed-form geometry-aware heuristic for UAV base station deployment that derives altitudes and antenna orientations directly from the antenna beamwidths and user geometry, at effectively zero computational cost.
-Across 1{,}500 synthetic configurations and 24 real-world Telecom Italia snapshots, the heuristic consistently outperforms a K-means baseline, with the advantage growing as fleet size increases and co-channel interference accumulates.
-The key mechanism is per-drone altitude adaptation, which provides vertical beam separation that suppresses mutual interference, sustaining coverage where the fixed-altitude baseline collapses.
+We presented a closed-form geometry-aware heuristic for UAV base station deployment that derives altitudes and antenna orientations directly from user geometry and antenna beamwidths at negligible computational cost, and an altitude-sweep heuristic that instead selects one common altitude by direct search over $26$ candidate heights. Across 1{,}500 synthetic configurations and 24 real-world Telecom Italia snapshots the sweep never loses to a fixed-altitude K-means baseline. The closed-form rule wins by wide margins on clustered synthetic demand, but on weakly clustered layouts it overestimates the altitude: on measured Milan demand it leads the baseline only with fewer than $8$ drones.
 
-Our results also reveal a coverage--interference boundary inherent to co-channel operation: beyond an optimal fleet size $N^*$, interference outweighs the benefit of spatial subdivision.
-This boundary shifts with user density and highlights that frequency planning is essential for dense UAV deployments at scale.
-Future work includes integrating frequency reuse into the analytic framework, extending to non-stationary user distributions with online replanning, and validation with measured antenna patterns.
-The simulation code is publicly available online.\footnote{\texttt{https://github.com/jalmanea/geometrybaseduavcommpaper}}
+On synthetic layouts the sweep improves on the closed-form rule by $+3.9$\,pp, and by $+5.4$\,pp on measured demand, at the cost of $26$ system-model evaluations per deployment. Both methods inherit K-means horizontal placement, the sweep assigns a single altitude fleet-wide and depends on an accurate system model, and the MST backhaul optimises link distance rather than interference. Future work will derive the altitude target from the coverage objective rather than from the $-3$\,dB footprint convention, integrate frequency reuse, and extend both methods to dynamic user distributions.
+
+
+% Comparing them quantifies how much the closed form gives up. The sweep leads it by $+3.9$\,pp on synthetic layouts and $+7.2$\,pp on measured demand, and is the better method at every fleet size $N \geq 4$, despite being fleet-wide rather than per-drone. Altitude is therefore worth searching wherever a system model is available at deployment time, and the geometric rule is best understood as a zero-evaluation approximation to that search rather than a substitute for it.
+
+% Future work will close the remaining gap by deriving the altitude target from the coverage objective rather than from the $-3$\,dB footprint convention, will integrate frequency reuse, and will extend the methods to dynamic user distributions.
+
 
 %----------------------------------------------------------------------
 \bibliographystyle{IEEEtran}
 \bibliography{references}
 
 \end{document}
+

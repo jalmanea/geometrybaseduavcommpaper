@@ -1,11 +1,19 @@
-"""Extract user positions from a Telecom Italia Trentino activity file.
+"""Extract user positions from a Telecom Italia activity file (Milan or Trentino).
 
-The dataset (doi:10.7910/DVN/QLCABU) records SMS/call/internet activity in
-10-minute bins for each 235×235 m grid cell in the province of Trentino.
+The Telecom Italia Big Data Challenge datasets record SMS/call/internet activity
+in 10-minute bins per grid square:
+
+  * Milan    (doi:10.7910/DVN/EGZHFV, grid doi:10.7910/DVN/QJWLFU):
+    100 x 100 squares of ~235 m.
+  * Trentino (doi:10.7910/DVN/QLCABU, grid doi:10.7910/DVN/FZRVSX):
+    117-column grid of ~1 km squares (6,575 squares inside the province).
+
+Square IDs are 1-based and run east along a row, then north. The grid widths and
+square sizes in REGIONS were measured from the official grid GeoJSON files.
 
 This script:
   1. Loads one day file and sums activity over a chosen hour window.
-  2. Maps square IDs to (x, y) metric coordinates using the 116-column grid.
+  2. Maps square IDs to (row, col) using the region's grid width.
   3. Crops the hottest N_CROP × N_CROP cells (or a fixed crop by row/col).
   4. Samples N user points inside each cell, weighted by total activity.
   5. Normalises positions to [0, area_size_m] and writes them as a .npy file.
@@ -28,9 +36,20 @@ from pathlib import Path
 
 import numpy as np
 
-# ── Grid constants (Trentino, 235 m cells) ─────────────────────────────────
-GRID_COLS = 116          # bounding-box width in cells
-CELL_SIZE_M = 235.0      # metres per cell side
+# ── Grid geometry per region ────────────────────────────────────────────────
+# Measured from the official grid files: a row/col fit of the square centroids
+# gives a median error of 5 m (Milan, 100 cols) and 81 m (Trentino, 117 cols).
+REGIONS = {
+    "milan":    {"grid_cols": 100, "cell_size_m": 235.0,  "file_prefix": "mi"},
+    "trentino": {"grid_cols": 117, "cell_size_m": 1000.0, "file_prefix": "tn"},
+    # The mapping used for results/telecom_v2 and results/telecom_v3. It is
+    # WRONG (Trentino is 117 cols of ~1 km); kept only to reproduce those runs.
+    "trentino_legacy": {"grid_cols": 116, "cell_size_m": 235.0, "file_prefix": "tn"},
+}
+
+# Module defaults keep older callers on the legacy mapping.
+GRID_COLS = REGIONS["trentino_legacy"]["grid_cols"]
+CELL_SIZE_M = REGIONS["trentino_legacy"]["cell_size_m"]
 
 # Column indices (0-based, tab-separated, some cells may be empty)
 COL_SQUARE   = 0
@@ -82,28 +101,29 @@ def load_activity(
     return activity
 
 
-def sq_id_to_xy(sq_id: int) -> tuple[int, int]:
-    """Return (row, col) for a square ID using the 116-column Trentino grid."""
+def sq_id_to_xy(sq_id: int, grid_cols: int = GRID_COLS) -> tuple[int, int]:
+    """Return (row, col) for a 1-based square ID on a grid ``grid_cols`` wide."""
     idx = sq_id - 1          # 0-based
-    row = idx // GRID_COLS
-    col = idx % GRID_COLS
+    row = idx // grid_cols
+    col = idx % grid_cols
     return row, col
 
 
 def find_hottest_crop(
     activity: dict[int, float],
     crop_cells: int,
+    grid_cols: int = GRID_COLS,
 ) -> tuple[int, int]:
     """Return (row_start, col_start) of the crop_cells×crop_cells patch with
     the highest total activity, using a sliding-window approach."""
     # Build sparse grid
-    rows, cols = zip(*(sq_id_to_xy(sq) for sq in activity))
+    rows, cols = zip(*(sq_id_to_xy(sq, grid_cols) for sq in activity))
     max_row = max(rows)
     max_col = max(cols)
 
     grid = np.zeros((max_row + 1, max_col + 1), dtype=np.float64)
     for sq_id, val in activity.items():
-        r, c = sq_id_to_xy(sq_id)
+        r, c = sq_id_to_xy(sq_id, grid_cols)
         grid[r, c] = val
 
     # Sliding-window sum via cumsum
@@ -140,6 +160,8 @@ def sample_users(
     crop_cells: int,
     area_size_m: float,
     rng: np.random.Generator,
+    grid_cols: int = GRID_COLS,
+    cell_size_m: float = CELL_SIZE_M,
 ) -> np.ndarray:
     """Sample n_users positions within the cropped region, weighted by activity.
 
@@ -153,7 +175,7 @@ def sample_users(
     for sq_id, val in activity.items():
         if val <= 0:
             continue
-        r, c = sq_id_to_xy(sq_id)
+        r, c = sq_id_to_xy(sq_id, grid_cols)
         if crop_row <= r < crop_end_row and crop_col <= c < crop_end_col:
             cells_in_crop.append((r, c, val))
 
@@ -177,10 +199,10 @@ def sample_users(
         if count == 0:
             continue
         # Origin of this cell in the original grid (metres)
-        x0 = (cols_a[i] - crop_col) * CELL_SIZE_M
-        y0 = (rows_a[i] - crop_row) * CELL_SIZE_M
+        x0 = (cols_a[i] - crop_col) * cell_size_m
+        y0 = (rows_a[i] - crop_row) * cell_size_m
         # Uniform random within the cell
-        pts = rng.uniform(0, CELL_SIZE_M, size=(count, 2))
+        pts = rng.uniform(0, cell_size_m, size=(count, 2))
         pts[:, 0] += x0
         pts[:, 1] += y0
         xy_list.append(pts)
@@ -188,7 +210,7 @@ def sample_users(
     xy = np.vstack(xy_list)
 
     # Normalise to [0, area_size_m]
-    raw_extent = crop_cells * CELL_SIZE_M
+    raw_extent = crop_cells * cell_size_m
     xy = xy * (area_size_m / raw_extent)
     xy = np.clip(xy, 0.0, area_size_m)
 
@@ -200,6 +222,8 @@ def sample_users(
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--region", choices=sorted(REGIONS), default="milan",
+                        help="Grid geometry and file prefix (default: %(default)s)")
     parser.add_argument("--date", default="2013-11-07",
                         help="Date string matching filename, e.g. 2013-11-07 (default: %(default)s)")
     parser.add_argument("--hour", type=int, default=11,
@@ -209,7 +233,7 @@ def main():
     parser.add_argument("--n-users", type=int, default=200,
                         help="Number of user positions to sample (default: %(default)s)")
     parser.add_argument("--crop", type=int, default=10,
-                        help="Crop size in grid cells (NxN). Default: %(default)s (~2.35 km)")
+                        help="Crop size in grid cells (NxN). Default: %(default)s (2.35 km in Milan)")
     parser.add_argument("--crop-row", type=int, default=None,
                         help="Top-left row of crop (default: auto hottest patch)")
     parser.add_argument("--crop-col", type=int, default=None,
@@ -227,7 +251,9 @@ def main():
 
     root = Path(__file__).resolve().parent.parent
     data_dir = root / args.data_dir
-    fname = f"sms-call-internet-tn-{args.date}.txt"
+    region = REGIONS[args.region]
+    grid_cols, cell_size_m = region["grid_cols"], region["cell_size_m"]
+    fname = f"sms-call-internet-{region['file_prefix']}-{args.date}.txt"
     fpath = data_dir / fname
     if not fpath.exists():
         sys.exit(f"File not found: {fpath}")
@@ -244,14 +270,14 @@ def main():
         crop_row, crop_col = args.crop_row, args.crop_col
         print(f"  Using fixed crop: row={crop_row}, col={crop_col}")
     else:
-        crop_row, crop_col = find_hottest_crop(activity, args.crop)
+        crop_row, crop_col = find_hottest_crop(activity, args.crop, grid_cols)
         print(f"  Auto hottest {args.crop}×{args.crop} patch: row={crop_row}, col={crop_col}")
 
     rng = np.random.default_rng(args.seed)
     positions = sample_users(
         activity, args.n_users,
         crop_row, crop_col, args.crop,
-        args.area_size, rng,
+        args.area_size, rng, grid_cols, cell_size_m,
     )
     print(f"  Sampled {positions.shape[0]} user positions in [0, {args.area_size}] m")
 
@@ -268,8 +294,8 @@ def main():
 
         # Build full activity grid for display
         act_items = list(activity.items())
-        rs = [sq_id_to_xy(s)[0] for s, _ in act_items]
-        cs = [sq_id_to_xy(s)[1] for s, _ in act_items]
+        rs = [sq_id_to_xy(s, grid_cols)[0] for s, _ in act_items]
+        cs = [sq_id_to_xy(s, grid_cols)[1] for s, _ in act_items]
         vals = [v for _, v in act_items]
         grid = np.zeros((max(rs) + 1, max(cs) + 1))
         for r, c, v in zip(rs, cs, vals):
